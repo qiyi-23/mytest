@@ -1,0 +1,200 @@
+package IOPart;
+
+import DataPart.PageController;
+import org.bytedeco.javacpp.*;
+import DataPart.Pages.Drawable;
+import DataPart.Pages.GamePage.Camera;
+import DataPart.Pages.GamePage.Overlapable.infos.Position;
+import org.bytedeco.opencv.global.opencv_core;
+import org.bytedeco.opencv.global.opencv_imgcodecs;
+import org.bytedeco.opencv.global.opencv_imgproc;
+import org.bytedeco.opencv.opencv_core.*;
+
+import java.util.List;
+
+import static org.bytedeco.opencv.global.opencv_core.*;
+import static org.bytedeco.opencv.global.opencv_highgui.imshow;
+import static org.bytedeco.opencv.global.opencv_highgui.waitKey;
+
+public class CameraDrawer {
+    private List<Drawable> drawables;
+    private Mat currentMat;
+    private PageController.Page currentPage ;
+    private Mat allMat;
+    private ResourcePool resourcePool;
+    private PageController pageController;
+    private Mat result = new Mat();
+
+
+    public CameraDrawer(List<Drawable> drawables,PageController pageController,ResourcePool resourcePool) {
+        currentMat = new Mat(960, 1280, CV_8UC3, new Scalar(255, 0, 0,0));
+        allMat = new Mat(4000, 16000, CV_8UC3, new Scalar(0, 0, 0,0));
+
+        this.drawables = drawables;
+//        for(Drawable drawable:this.drawables){
+//            System.out.println(drawable.getCurrentImage());
+//        }
+        this.pageController = pageController;
+        this.currentPage = pageController.getCurrentPage();
+        this.resourcePool = resourcePool;
+    }
+
+    public Mat draw(PageController.Page currentPage) {
+//        System.out.println(currentPage.toString());
+        switch (currentPage){
+            case MainPage -> {
+                // 绘制主页面
+                for(Drawable drawable:this.drawables){
+//                    System.out.println(drawable.getCurrentImage());
+                    drawDetail(drawable,true);
+                }
+                cutRoi(0,0);
+            }
+
+            case SetPage -> {
+                // 绘制设置页面
+                // 绘制主页面
+                for(Drawable drawable:this.drawables){
+                    drawDetail(drawable,true);
+                }
+                cutRoi(0,0);
+            }
+
+            case CreatePage -> {
+                // 绘制创建页面
+                // 绘制主页面
+                for(Drawable drawable:this.drawables){
+                    drawDetail(drawable,true);
+                }
+                cutRoi(0,0);
+            }
+
+            case LoadPage -> {
+                // 绘制加载页面
+                // 绘制主页面
+                for(Drawable drawable:this.drawables){
+                    drawDetail(drawable,true);
+                }
+                cutRoi(0,0);
+            }
+
+            case GamePage -> {
+                // 绘制游戏页面
+                // 绘制主页面
+                System.out.println("CAMERA GAMEPAGE");
+                for(Drawable drawable:this.drawables){
+                    if(drawable.getCurrentImage()!=null) {
+                        drawDetail(drawable,false);
+                    }
+                }
+                // TODO：需要根据主人公位置进行设置
+                cutRoi(pageController.getGamePage().getMap1().getMainCharacter().getDrawPosition().getX() - 640,
+                        pageController.getGamePage().getMap1().getMainCharacter().getDrawPosition().getY() - 480);
+            }
+
+            case null, default -> {
+            }
+        }
+
+
+        return currentMat;
+    }
+
+    public void cutRoi(int x,int y){
+        int safeX = x;
+        int safeY = y;
+        if(safeX < 0){
+            safeX = 0;
+        }
+        if(safeX + 1280 > 16000){
+            safeX = 16000 - 1280;
+        }
+        if(safeY <  0){
+            safeY = 0;
+        }
+        if(safeY + 960 > 4000){
+            safeY = 4000 -  960;
+        }
+
+
+        Rect roi = new Rect(safeX, safeY, 1280, 960);
+
+        if (x >= 0 && y >= 0 && x + 1280 <= allMat.cols() && y + 960 <= allMat.rows()) {
+            currentMat = new Mat(allMat, roi);
+        } else {
+            // 处理错误：roi 超出范围
+            System.out.println("roi 超出范围");
+        }
+    }
+
+    public void drawDetail(Drawable drawable,boolean useWeight){
+//        System.out.println(drawable.getCurrentImage());
+        // 创建掩码
+        //Mat mask = new Mat(resourcePool.getImageResources().get(drawable.getCurrentImage()).size(),
+        //            CV_8UC1,new Scalar(255));
+
+        //opencv_imgproc.threshold(resourcePool.getImageResources().get(drawable.getCurrentImage()).split())
+        //System.out.println(drawable.getCurrentImage());
+        if (resourcePool.getImageResource().get(drawable.getCurrentImage()).channels() == 4) {
+            System.out.println("yes");
+
+        }
+
+
+        // 创建一个Rect对象，指定源Mat复制到目标Mat的区域
+        Rect roi = new Rect(drawable.getDrawPosition().getX(),
+                drawable.getDrawPosition().getY(),
+                resourcePool.getImageResource().get(drawable.getCurrentImage()).cols(),
+                resourcePool.getImageResource().get(drawable.getCurrentImage()).rows());
+
+        // 将源Mat复制到目标Mat的指定位置
+        try {
+            if(useWeight) {
+                Mat src_roi = new Mat(allMat,roi);
+//                resourcePool.getImageResource().get(drawable.getCurrentImage()).copyTo(allMat.apply(roi));
+                addWeighted(src_roi,0.8, resourcePool.getImageResource().get(drawable.getCurrentImage()),0.2,0,src_roi);
+            }else {
+//                resourcePool.getImageResource().get(drawable.getCurrentImage()).copyTo(allMat.apply(roi));
+
+                Mat smallMask = new Mat();
+                opencv_imgproc.cvtColor(resourcePool.getImageResource().get(drawable.getCurrentImage()), smallMask, opencv_imgproc.COLOR_BGR2GRAY);
+                opencv_imgproc.threshold(smallMask, smallMask, 0, 10, opencv_imgproc.THRESH_BINARY);
+
+                // 应用掩码保留大图背景
+                opencv_core.bitwise_and(allMat.apply(roi), allMat.apply(roi), result, smallMask);
+
+                // 合并图像
+                resourcePool.getImageResource().get(drawable.getCurrentImage()).copyTo(allMat.apply(roi), smallMask);
+
+            }
+        }catch (Exception e){
+
+            e.printStackTrace();
+            System.out.println("Main character drop out of the world!");
+            drawable.setPosition(new Position(4600,3000));
+        }
+
+    }
+
+    // 这里需要绘制当前页面
+    public Mat output(PageController.Page currentPage){
+        currentMat = draw(currentPage);
+        return currentMat;
+    }
+
+    public List<Drawable> getDrawables() {
+        return drawables;
+    }
+
+    public void setDrawables(List<Drawable> drawables) {
+        this.drawables = drawables;
+    }
+
+    public Mat getCurrentMat() {
+        return currentMat;
+    }
+
+    public void setCurrentMat(Mat currentMat) {
+        this.currentMat = currentMat;
+    }
+}
